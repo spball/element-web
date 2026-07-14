@@ -53,7 +53,6 @@ import UserView from "./UserView";
 import { mediaFromMxc } from "../../customisations/Media";
 import { UserTab } from "../views/dialogs/UserTab";
 import { type OpenToTabPayload } from "../../dispatcher/payloads/OpenToTabPayload";
-import RightPanelStore from "../../stores/right-panel/RightPanelStore";
 import { TimelineRenderingType } from "../../contexts/RoomContext";
 import { KeyBindingAction } from "../../accessibility/KeyboardShortcuts";
 import { type SwitchSpacePayload } from "../../dispatcher/payloads/SwitchSpacePayload";
@@ -311,7 +310,7 @@ class LoggedInView extends React.Component<IProps, IState> {
     private calculateServerLimitToast(syncError: IState["syncErrorData"], usageLimitEventContent?: IUsageLimit): void {
         const error = (syncError?.error as MatrixError)?.errcode === "M_RESOURCE_LIMIT_EXCEEDED";
         if (error) {
-            usageLimitEventContent = (syncError?.error as MatrixError).data as IUsageLimit;
+            usageLimitEventContent = (syncError?.error as MatrixError)?.data as IUsageLimit;
         }
 
         // usageLimitDismissed is true when the user has explicitly hidden the toast
@@ -494,7 +493,7 @@ class LoggedInView extends React.Component<IProps, IState> {
                 break;
             case KeyBindingAction.ToggleRoomSidePanel:
                 if (this.props.page_type === "room_view") {
-                    RightPanelStore.instance.togglePanel(null);
+                    this.context.rightPanelStore.togglePanel(null);
                     handled = true;
                 }
                 break;

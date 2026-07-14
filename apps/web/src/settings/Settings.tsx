@@ -219,7 +219,6 @@ export interface Settings {
     "feature_sliding_sync": IBaseSetting<boolean>;
     "feature_simplified_sliding_sync": IFeature;
     "feature_element_call_video_rooms": IFeature;
-    "feature_group_calls": IFeature;
     "feature_disable_call_per_sender_encryption": IFeature;
     "feature_location_share_live": IFeature;
     "feature_dynamic_room_predecessors": IFeature;
@@ -230,6 +229,7 @@ export interface Settings {
     "feature_msc4362_encrypted_state_events": IFeature;
     "feature_user_status": IFeature;
     "feature_login_with_qr": IFeature;
+    "feature_msc4095_url_preview_bundle": IFeature;
     // These are in the feature namespace but aren't actually features
     "feature_hidebold": IBaseSetting<boolean>;
 
@@ -282,6 +282,7 @@ export interface Settings {
     "useSystemFont": IBaseSetting<boolean>;
     "systemFont": IBaseSetting<string>;
     "webRtcAllowPeerToPeer": IBaseSetting<boolean>;
+    "enableLegacyCallsVoip": IBaseSetting<boolean>;
     "webrtc_audiooutput": IBaseSetting<string>;
     "webrtc_audioinput": IBaseSetting<string>;
     "webrtc_videoinput": IBaseSetting<string>;
@@ -371,9 +372,16 @@ export interface Settings {
 export type SettingKey = keyof Settings;
 export type FeatureSettingKey = Assignable<Settings, IFeature>;
 export type BooleanSettingKey = Assignable<Settings, IBaseSetting<boolean>> | FeatureSettingKey;
+export type NullableBooleanSettingKey = Assignable<Settings, IBaseSetting<boolean | null>> | FeatureSettingKey;
 export type StringSettingKey = Assignable<Settings, IBaseSetting<string>>;
 
 export const SETTINGS: Settings = {
+    // Used in tests only
+    "test_setting": {
+        supportedLevels: [],
+        default: "",
+    },
+
     "feature_video_rooms": {
         isFeature: true,
         labsGroup: LabGroup.VoiceAndVideo,
@@ -587,15 +595,6 @@ export const SETTINGS: Settings = {
         controller: new ReloadOnChangeController(),
         default: false,
     },
-    "feature_group_calls": {
-        isFeature: true,
-        labsGroup: LabGroup.VoiceAndVideo,
-        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG_PRIORITISED,
-        supportedLevelsAreOrdered: true,
-        displayName: _td("labs|group_calls"),
-        controller: new ReloadOnChangeController(),
-        default: false,
-    },
     "feature_disable_call_per_sender_encryption": {
         isFeature: true,
         labsGroup: LabGroup.VoiceAndVideo,
@@ -647,6 +646,15 @@ export const SETTINGS: Settings = {
         labsGroup: LabGroup.Ui,
         displayName: _td("labs|login_with_qr"),
         description: _td("labs|config_only"),
+        isFeature: true,
+        default: false,
+    },
+    "feature_msc4095_url_preview_bundle": {
+        labsGroup: LabGroup.Messaging,
+        displayName: _td("labs|url_preview_bundle"),
+        description: _td("labs|url_preview_bundle_description"),
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG_PRIORITISED,
+        supportedLevelsAreOrdered: true,
         isFeature: true,
         default: false,
     },
@@ -979,6 +987,12 @@ export const SETTINGS: Settings = {
         default: "",
         displayName: _td("settings|appearance|custom_font_name"),
         controller: new SystemFontController(),
+    },
+    "enableLegacyCallsVoip": {
+        supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG,
+        displayName: _td("settings|voip|enable_legacy_calls"),
+        description: _td("settings|voip|enable_legacy_calls_description"),
+        default: true,
     },
     "webRtcAllowPeerToPeer": {
         supportedLevels: LEVELS_DEVICE_ONLY_SETTINGS_WITH_CONFIG,

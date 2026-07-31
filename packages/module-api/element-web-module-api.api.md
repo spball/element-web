@@ -61,6 +61,8 @@ export interface Api extends LegacyModuleApiExtension, LegacyCustomisationsApiEx
     readonly i18n: I18nApi;
     readonly navigation: NavigationApi;
     readonly rootNode: HTMLElement;
+    // @alpha
+    readonly settings: SettingsApi;
     readonly stores: StoresApi;
     // @alpha
     readonly widget: WidgetApi;
@@ -178,8 +180,8 @@ export type CustomLoginComponentProps = {
     serverConfig: CustomLoginComponentPropsServerConfig;
     fragmentAfterLogin?: string;
     children?: ReactNode;
-    onLoggedIn(data: AccountAuthInfo): void;
-    onServerConfigChange(config: CustomLoginComponentPropsServerConfig): void;
+    onLoggedIn(this: void, data: AccountAuthInfo): void;
+    onServerConfigChange(this: void, config: CustomLoginComponentPropsServerConfig): void;
 };
 
 // @alpha
@@ -229,7 +231,7 @@ export type DialogHandle<M> = {
         ok: boolean;
         model: M | null;
     }>;
-    close(): void;
+    close(this: void): void;
 };
 
 // @public
@@ -239,8 +241,8 @@ export interface DialogOptions {
 
 // @public
 export type DialogProps<M> = {
-    onSubmit(model: M): void;
-    onCancel(): void;
+    onSubmit(this: void, model: M): void;
+    onCancel(this: void): void;
 };
 
 // @alpha @deprecated (undocumented)
@@ -477,6 +479,11 @@ export interface RoomViewProps {
 
 // @alpha @deprecated (undocumented)
 export type RuntimeModuleConstructor = new (api: ModuleApi) => RuntimeModule;
+
+// @alpha
+export interface SettingsApi {
+    getValue<T = any>(settingName: string, roomId?: string | null, excludeDefault?: boolean): T | undefined;
+}
 
 // @alpha
 export interface SpacePanelItemProps {

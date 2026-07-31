@@ -458,6 +458,7 @@ export default class EventIndex extends EventEmitter {
 
         let idle = false;
 
+        // oxlint-disable-next-line no-unmodified-loop-condition
         while (!cancelled) {
             let sleepTime = SettingsStore.getValueAt(SettingLevel.DEVICE, "crawlerSleepTime");
 
@@ -992,7 +993,10 @@ export default class EventIndex extends EventEmitter {
     }
 
     public crawlingRooms(): {
-        /** The rooms that we are currently crawling. */
+        /**
+         * The rooms with an outstanding crawler checkpoint: the one being crawled right now, and
+         * those still queued behind it.
+         */
         crawlingRooms: Set<string>;
 
         /** All the encrypted rooms known by the MatrixClient. */

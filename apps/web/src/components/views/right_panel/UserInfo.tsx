@@ -76,11 +76,8 @@ export const Container: React.FC<{
 
 export interface IPowerLevelsContent {
     events?: Record<string, number>;
-    // eslint-disable-next-line camelcase
     users_default?: number;
-    // eslint-disable-next-line camelcase
     events_default?: number;
-    // eslint-disable-next-line camelcase
     state_default?: number;
     ban?: number;
     kick?: number;
@@ -198,14 +195,14 @@ const UserInfo: React.FC<IProps> = ({ user, room, onClose, phase = RightPanelPha
     let content: JSX.Element | undefined;
     switch (phase) {
         case RightPanelPhases.MemberInfo:
-            content = <UserInfoBasicView room={room as Room} member={member as User} />;
+            content = <UserInfoBasicView room={room as Room} member={member} />;
             break;
         case RightPanelPhases.EncryptionPanel:
             classes.push("mx_UserInfo_smallAvatar");
             content = (
                 <EncryptionPanel
                     {...(props as React.ComponentProps<typeof EncryptionPanel>)}
-                    member={member as User | RoomMember}
+                    member={member}
                     onClose={onEncryptionPanelClose}
                     isRoomEncrypted={Boolean(isRoomEncrypted)}
                 />

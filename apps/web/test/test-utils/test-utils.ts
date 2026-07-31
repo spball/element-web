@@ -366,6 +366,7 @@ export function createTestClient(): MatrixClient {
         setRoomTag: vi.fn().mockResolvedValue({}),
         getExtendedProfileProperty: vi.fn(),
         setExtendedProfileProperty: vi.fn().mockResolvedValue(undefined),
+        doesServerSupportExtendedProfiles: vi.fn(),
     } as unknown as MatrixClient;
 
     client.reEmitter = new ReEmitter(client);
@@ -417,7 +418,6 @@ type MakeEventProps = MakeEventPassThruProps & {
     redacts?: string;
     content: IContent;
     room?: Room["roomId"]; // to-device messages are roomless
-    // eslint-disable-next-line camelcase
     prev_content?: IContent;
     unsigned?: IUnsigned;
     status?: EventStatus;
@@ -666,9 +666,9 @@ export function mkMessage({
 
 export function mkStubRoom(
     roomId: string | null | undefined = null,
-    name?: string | undefined,
-    client?: MatrixClient | undefined,
-    state?: RoomState | undefined,
+    name?: string,
+    client?: MatrixClient,
+    state?: RoomState,
 ): Room {
     const stubTimeline = {
         getEvents: (): MatrixEvent[] => [],

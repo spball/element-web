@@ -13,6 +13,7 @@ import type { MatrixClient } from "matrix-js-sdk/src/matrix";
 import type { RoomNotificationState } from "../../../../src/stores/notifications/RoomNotificationState";
 import {
     LISTS_UPDATE_EVENT,
+    ROOM_TAGGED_EVENT,
     SECTION_CREATED_EVENT,
     RoomListStoreV3Class,
     type Section,
@@ -120,7 +121,7 @@ describe("RoomListStoreV3", () => {
 
             // Let's pretend like a new timeline event came on the room in 37th index.
             const room = rooms[37];
-            const event = mkMessage({ room: room.roomId, user: `@foo${3}:matrix.org`, ts: 1000, event: true });
+            const event = mkMessage({ room: room.roomId, user: "@foo3:matrix.org", ts: 1000, event: true });
             jest.spyOn(room.getLiveTimeline(), "getEvents").mockReturnValue([event]);
 
             const payload = {
@@ -340,6 +341,19 @@ describe("RoomListStoreV3", () => {
                 {
                     action: "MatrixActions.Room.tags",
                     room: rooms[10],
+                },
+                true,
+            );
+            expect(fn).toHaveBeenCalled();
+        });
+
+        it("emits ROOM_TAGGED_EVENT on a local user tag action", async () => {
+            const { store, dispatcher } = await getRoomListStore();
+            const fn = jest.fn();
+            store.on(ROOM_TAGGED_EVENT, fn);
+            dispatcher.dispatch(
+                {
+                    action: "RoomListActions.tagRoom.success",
                 },
                 true,
             );
@@ -1335,7 +1349,7 @@ describe("RoomListStoreV3", () => {
             // Let's say that rooms 14 and 34 get new messages in that order
             let ts = 1000;
             for (const room of [rooms[14], rooms[34]]) {
-                const event = mkMessage({ room: room.roomId, user: `@foo${3}:matrix.org`, ts: 1000, event: true });
+                const event = mkMessage({ room: room.roomId, user: `@foo3:matrix.org`, ts: 1000, event: true });
                 jest.spyOn(room.getLiveTimeline(), "getEvents").mockReturnValue([event]);
 
                 const payload = {

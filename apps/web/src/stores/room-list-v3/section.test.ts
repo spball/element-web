@@ -18,6 +18,8 @@ import {
     deleteSection,
     getCustomSectionData,
     getOrderedCustomSections,
+    getOrderedReorderableSections,
+    getOrderedSectionTags,
     isDefaultSectionTag,
     isSectionExpanded,
     setSectionExpanded,
@@ -32,11 +34,29 @@ import { RemoveSectionDialog } from "../../components/views/dialogs/RemoveSectio
 import { DefaultTagID } from "./skip-list/tag";
 import { MetaSpace } from "../spaces";
 import { SDKContextClass } from "../../contexts/SDKContextClass.ts";
+import { mkStubRoom } from "test-utils";
+import { tagRoom } from "../../utils/room/tagRoom.ts";
+
+vi.mock("../../utils/room/tagRoom.ts", () => ({
+    tagRoom: vi.fn(),
+}));
 
 describe("section", () => {
     afterEach(() => {
         vi.restoreAllMocks();
+        vi.mocked(tagRoom).mockClear();
     });
+
+    /**
+     * Make the given rooms resolvable through the client.
+     * @param roomIds - The ids of the rooms the client knows about.
+     */
+    function setupRooms(roomIds: string[]): void {
+        const rooms = roomIds.map((roomId) => mkStubRoom(roomId, roomId));
+        vi.spyOn(SDKContextClass.instance, "client", "get").mockReturnValue({
+            getRoom: (roomId: string) => rooms.find((room) => room.roomId === roomId) ?? null,
+        } as any);
+    }
 
     describe("getCustomSectionData", () => {
         const validTag = "element.io.section.valid";
@@ -148,11 +168,29 @@ describe("section", () => {
             vi.spyOn(SettingsStore, "getValue").mockReturnValue(value);
             expect(isSectionExpanded(spaceId, tag)).toBe(result);
         });
+
+        // The Invites section is collapsed every time it appears, so a stored value is ignored
+        it.each([
+            { description: "nothing is stored", value: {} },
+            { description: "an expanded state is stored", value: { [spaceId]: { [DefaultTagID.Invite]: true } } },
+        ])("returns false for the Invites section when $description", ({ value }) => {
+            vi.spyOn(SettingsStore, "getValue").mockReturnValue(value);
+            expect(isSectionExpanded(spaceId, DefaultTagID.Invite)).toBe(false);
+        });
     });
 
     describe("setSectionExpanded", () => {
         const spaceId = "!space:server";
         const tag = "element.io.section.abc";
+
+        it("does not persist the Invites section, whose state is never remembered", async () => {
+            vi.spyOn(SettingsStore, "getValue").mockReturnValue({});
+            const setValueSpy = vi.spyOn(SettingsStore, "setValue").mockResolvedValue(undefined);
+
+            await setSectionExpanded(spaceId, DefaultTagID.Invite, true);
+
+            expect(setValueSpy).not.toHaveBeenCalled();
+        });
 
         it("persists the state at the device level", async () => {
             vi.spyOn(SettingsStore, "getValue").mockReturnValue({});
@@ -201,12 +239,12 @@ describe("section", () => {
         });
 
         it.each([
-            [false, "", undefined],
-            [true, "", undefined],
-            [true, "My Section", expect.stringMatching(/^element\.io\.section\./)],
-        ])("returns %s when shouldCreate=%s and name='%s'", async (shouldCreate, name, expected) => {
+            [undefined, undefined],
+            ["", undefined],
+            ["My Section", expect.stringMatching(/^element\.io\.section\./)],
+        ])("returns %s when the dialog is finished with name='%s'", async (name, expected) => {
             vi.spyOn(Modal, "createDialog").mockReturnValue({
-                finished: Promise.resolve([shouldCreate, name]),
+                finished: Promise.resolve([name]),
                 close: vi.fn(),
             } as any);
 
@@ -216,7 +254,7 @@ describe("section", () => {
 
         it("returns the new tag when section is created", async () => {
             vi.spyOn(Modal, "createDialog").mockReturnValue({
-                finished: Promise.resolve([true, "My Section"]),
+                finished: Promise.resolve(["My Section"]),
                 close: vi.fn(),
             } as any);
 
@@ -226,12 +264,31 @@ describe("section", () => {
 
         it("opens the CreateSectionDialog", async () => {
             const createDialogSpy = vi.spyOn(Modal, "createDialog").mockReturnValue({
-                finished: Promise.resolve([false, ""]),
+                finished: Promise.resolve([undefined]),
                 close: vi.fn(),
             } as any);
 
-            await createSection(MetaSpace.Home);
-            expect(createDialogSpy).toHaveBeenCalledWith(CreateSectionDialog);
+            await createSection(MetaSpace.Home, "!preselected:example.org");
+            expect(createDialogSpy).toHaveBeenCalledWith(CreateSectionDialog, {
+                preselectedRoomId: "!preselected:example.org",
+            });
+        });
+
+        it("tags the rooms chosen in the dialog with the new section", async () => {
+            vi.spyOn(Modal, "createDialog").mockReturnValue({
+                finished: Promise.resolve(["My Section", ["!picked:example.org"]]),
+                close: vi.fn(),
+            } as any);
+
+            const room = mkStubRoom("!picked:example.org", "Picked");
+            room.tags = {};
+            vi.spyOn(SDKContextClass.instance, "client", "get").mockReturnValue({
+                getRoom: () => room,
+            } as any);
+
+            const newTag = await createSection(MetaSpace.Home);
+
+            expect(tagRoom).toHaveBeenCalledWith(room, newTag, true);
         });
 
         it("saves section data and ordered sections at ACCOUNT level when confirmed", async () => {
@@ -243,7 +300,7 @@ describe("section", () => {
                 return null;
             });
             vi.spyOn(Modal, "createDialog").mockReturnValue({
-                finished: Promise.resolve([true, "My Section"]),
+                finished: Promise.resolve(["My Section"]),
                 close: vi.fn(),
             } as any);
             const setValueSpy = vi.spyOn(SettingsStore, "setValue").mockResolvedValue(undefined);
@@ -252,10 +309,13 @@ describe("section", () => {
 
             const orderedCall = setValueSpy.mock.calls.find(([name]) => name === "RoomList.OrderedCustomSections");
             const savedOrder = orderedCall![3] as string[];
-            expect(savedOrder[0]).toBe(existingTag);
-            expect(savedOrder[1]).toMatch(/^element\.io\.section\./);
+            // The new section is added just before CHATS_TAG, after the existing sections
+            expect(savedOrder[0]).toBe(DefaultTagID.DM);
+            expect(savedOrder[1]).toBe(existingTag);
+            expect(savedOrder[2]).toMatch(/^element\.io\.section\./);
+            expect(savedOrder[3]).toBe(CHATS_TAG);
 
-            const newTag = savedOrder[1];
+            const newTag = savedOrder[2];
             const customDataCall = setValueSpy.mock.calls.find(([name]) => name === "RoomList.CustomSectionData");
             const savedSection = (customDataCall![3] as Record<string, { tag: string; name: string; spaceId: string }>)[
                 newTag
@@ -291,21 +351,19 @@ describe("section", () => {
 
         it("opens the CreateSectionDialog with the current section name", async () => {
             const createDialogSpy = vi.spyOn(Modal, "createDialog").mockReturnValue({
-                finished: Promise.resolve([false, ""]),
+                finished: Promise.resolve([undefined]),
                 close: vi.fn(),
             } as any);
 
             await editSection(tag);
-            expect(createDialogSpy).toHaveBeenCalledWith(CreateSectionDialog, { sectionToEdit: "Old Name" });
+            expect(createDialogSpy).toHaveBeenCalledWith(CreateSectionDialog, {
+                sectionToEdit: { tag, name: "Old Name", spaceId: MetaSpace.Home },
+            });
         });
 
-        it.each([
-            [false, "New Name"],
-            [true, ""],
-            [true, "Old Name"],
-        ])("does not save when shouldEdit=%s and name='%s'", async (shouldEdit, name) => {
+        it.each([[undefined], [""], ["Old Name"]])("does not save when the name is '%s'", async (name) => {
             vi.spyOn(Modal, "createDialog").mockReturnValue({
-                finished: Promise.resolve([shouldEdit, name]),
+                finished: Promise.resolve([name]),
                 close: vi.fn(),
             } as any);
             const setValueSpy = vi.spyOn(SettingsStore, "setValue").mockResolvedValue(undefined);
@@ -316,7 +374,7 @@ describe("section", () => {
 
         it("saves the new name when confirmed with a different name", async () => {
             vi.spyOn(Modal, "createDialog").mockReturnValue({
-                finished: Promise.resolve([true, "New Name"]),
+                finished: Promise.resolve(["New Name"]),
                 close: vi.fn(),
             } as any);
             const setValueSpy = vi.spyOn(SettingsStore, "setValue").mockResolvedValue(undefined);
@@ -329,6 +387,38 @@ describe("section", () => {
                 expect.anything(),
                 expect.objectContaining({ [tag]: expect.objectContaining({ tag, name: "New Name" }) }),
             );
+        });
+
+        it("tags the rooms added to the section and untags the ones removed from it", async () => {
+            setupRooms(["!added:example.org", "!removed:example.org"]);
+            vi.spyOn(Modal, "createDialog").mockReturnValue({
+                finished: Promise.resolve(["New Name", ["!added:example.org"], ["!removed:example.org"]]),
+                close: vi.fn(),
+            } as any);
+
+            await editSection(tag);
+
+            expect(tagRoom).toHaveBeenCalledTimes(2);
+            expect(tagRoom).toHaveBeenCalledWith(expect.objectContaining({ roomId: "!added:example.org" }), tag, true);
+            expect(tagRoom).toHaveBeenCalledWith(
+                expect.objectContaining({ roomId: "!removed:example.org" }),
+                tag,
+                true,
+            );
+        });
+
+        it("applies the room changes even when the name is unchanged", async () => {
+            setupRooms(["!added:example.org"]);
+            vi.spyOn(Modal, "createDialog").mockReturnValue({
+                finished: Promise.resolve(["Old Name", ["!added:example.org"], []]),
+                close: vi.fn(),
+            } as any);
+            const setValueSpy = vi.spyOn(SettingsStore, "setValue").mockResolvedValue(undefined);
+
+            await editSection(tag);
+
+            expect(tagRoom).toHaveBeenCalledWith(expect.objectContaining({ roomId: "!added:example.org" }), tag, true);
+            expect(setValueSpy).not.toHaveBeenCalled();
         });
     });
 
@@ -394,11 +484,101 @@ describe("section", () => {
             await deleteSection(tag, false);
 
             const orderedCall = setValueSpy.mock.calls.find(([name]) => name === "RoomList.OrderedCustomSections");
-            // CHATS_TAG is appended because the stored order didn't include it (legacy default position).
-            expect(orderedCall![3]).toEqual([otherTag, CHATS_TAG]);
+            // The DM tag is prepended and CHATS_TAG appended because the stored order didn't
+            // include them (legacy default positions).
+            expect(orderedCall![3]).toEqual([DefaultTagID.DM, otherTag, CHATS_TAG]);
 
             const customDataCall = setValueSpy.mock.calls.find(([name]) => name === "RoomList.CustomSectionData");
             expect(customDataCall![3]).not.toHaveProperty(tag);
+        });
+    });
+
+    describe("ordered sections", () => {
+        const customTag = `${CUSTOM_SECTION_TAG_PREFIX}abc`;
+
+        function mockStoredOrder(orderedTags: string[], showPeopleSection = false): void {
+            vi.spyOn(SettingsStore, "getValue").mockImplementation((setting) => {
+                if (setting === "RoomList.OrderedCustomSections") return orderedTags;
+                if (setting === "RoomList.CustomSectionData") return { [customTag]: { tag: customTag, name: "A" } };
+                if (setting === "RoomList.showPeopleSection") return showPeopleSection;
+                return null;
+            });
+        }
+
+        it.each<{ description: string; stored: string[]; expected: string[] }>([
+            {
+                description: "keeps the stored position of the People and Chats tags",
+                stored: [customTag, CHATS_TAG, DefaultTagID.DM],
+                expected: [customTag, CHATS_TAG, DefaultTagID.DM],
+            },
+            {
+                description: "prepends the People tag and appends the Chats tag when they are missing",
+                stored: [customTag],
+                expected: [DefaultTagID.DM, customTag, CHATS_TAG],
+            },
+            {
+                description: "drops unknown custom sections",
+                stored: [DefaultTagID.DM, `${CUSTOM_SECTION_TAG_PREFIX}unknown`, CHATS_TAG],
+                expected: [DefaultTagID.DM, CHATS_TAG],
+            },
+            {
+                description: "drops the pinned Invite, Favourite and LowPriority tags",
+                stored: [
+                    DefaultTagID.Invite,
+                    DefaultTagID.Favourite,
+                    DefaultTagID.DM,
+                    CHATS_TAG,
+                    DefaultTagID.LowPriority,
+                ],
+                expected: [DefaultTagID.DM, CHATS_TAG],
+            },
+        ])("getOrderedReorderableSections $description", ({ stored, expected }) => {
+            mockStoredOrder(stored);
+            expect(getOrderedReorderableSections()).toEqual(expected);
+        });
+
+        it.each<{ description: string; stored: string[]; showPeopleSection: boolean; expected: string[] }>([
+            {
+                description: "pins Favourite at the top and LowPriority at the bottom",
+                stored: [customTag, CHATS_TAG],
+                showPeopleSection: false,
+                expected: [DefaultTagID.Invite, DefaultTagID.Favourite, customTag, CHATS_TAG, DefaultTagID.LowPriority],
+            },
+            {
+                description: "includes the People tag when the setting is enabled",
+                stored: [customTag, CHATS_TAG],
+                showPeopleSection: true,
+                expected: [
+                    DefaultTagID.Invite,
+                    DefaultTagID.Favourite,
+                    DefaultTagID.DM,
+                    customTag,
+                    CHATS_TAG,
+                    DefaultTagID.LowPriority,
+                ],
+            },
+            {
+                description: "drops the People tag when the setting is disabled, keeping the other sections in order",
+                stored: [customTag, CHATS_TAG, DefaultTagID.DM],
+                showPeopleSection: false,
+                expected: [DefaultTagID.Invite, DefaultTagID.Favourite, customTag, CHATS_TAG, DefaultTagID.LowPriority],
+            },
+            {
+                description: "keeps the stored position of the People tag when the setting is enabled",
+                stored: [customTag, CHATS_TAG, DefaultTagID.DM],
+                showPeopleSection: true,
+                expected: [
+                    DefaultTagID.Invite,
+                    DefaultTagID.Favourite,
+                    customTag,
+                    CHATS_TAG,
+                    DefaultTagID.DM,
+                    DefaultTagID.LowPriority,
+                ],
+            },
+        ])("getOrderedSectionTags $description", ({ stored, showPeopleSection, expected }) => {
+            mockStoredOrder(stored, showPeopleSection);
+            expect(getOrderedSectionTags()).toEqual(expected);
         });
     });
 
@@ -434,7 +614,7 @@ describe("section", () => {
                 },
                 source: customTag,
                 target: customTag2,
-                expected: [customTag2, customTag, CHATS_TAG],
+                expected: [DefaultTagID.DM, customTag2, customTag, CHATS_TAG],
             },
             {
                 description: "a custom section before another when dragging up",
@@ -445,7 +625,7 @@ describe("section", () => {
                 },
                 source: customTag,
                 target: customTag2,
-                expected: [customTag, customTag2, CHATS_TAG],
+                expected: [DefaultTagID.DM, customTag, customTag2, CHATS_TAG],
             },
             {
                 description: "a custom section past the Chats tag",
@@ -456,7 +636,7 @@ describe("section", () => {
                 },
                 source: customTag,
                 target: CHATS_TAG,
-                expected: [customTag2, CHATS_TAG, customTag],
+                expected: [DefaultTagID.DM, customTag2, CHATS_TAG, customTag],
             },
             {
                 description: "the Chats tag above a custom section",
@@ -467,7 +647,23 @@ describe("section", () => {
                 },
                 source: CHATS_TAG,
                 target: customTag,
-                expected: [CHATS_TAG, customTag, customTag2],
+                expected: [DefaultTagID.DM, CHATS_TAG, customTag, customTag2],
+            },
+            {
+                description: "the People tag past the Chats tag",
+                initial: [DefaultTagID.DM, customTag, CHATS_TAG],
+                customData: { [customTag]: { tag: customTag, name: "A" } },
+                source: DefaultTagID.DM,
+                target: CHATS_TAG,
+                expected: [customTag, CHATS_TAG, DefaultTagID.DM],
+            },
+            {
+                description: "a custom section above the People tag",
+                initial: [DefaultTagID.DM, customTag, CHATS_TAG],
+                customData: { [customTag]: { tag: customTag, name: "A" } },
+                source: customTag,
+                target: DefaultTagID.DM,
+                expected: [customTag, DefaultTagID.DM, CHATS_TAG],
             },
         ])(
             "moves $description and saves the new order at ACCOUNT level",
@@ -518,24 +714,31 @@ describe("section", () => {
     });
 
     describe("isDefaultSectionTag", () => {
-        it.each([DefaultTagID.Favourite, DefaultTagID.LowPriority, CHATS_TAG])("returns true for %s", (tag) => {
-            expect(isDefaultSectionTag(tag)).toBe(true);
-        });
+        it.each([DefaultTagID.Invite, DefaultTagID.Favourite, DefaultTagID.LowPriority, CHATS_TAG, DefaultTagID.DM])(
+            "returns true for %s",
+            (tag) => {
+                expect(isDefaultSectionTag(tag)).toBe(true);
+            },
+        );
 
-        it.each([DefaultTagID.Invite, "some.random.tag"])("returns false for %s", (tag) => {
+        it.each(["some.random.tag"])("returns false for %s", (tag) => {
             expect(isDefaultSectionTag(tag)).toBe(false);
         });
     });
 
     describe("isSectionTag", () => {
-        it.each([DefaultTagID.Favourite, DefaultTagID.LowPriority, CHATS_TAG, `${CUSTOM_SECTION_TAG_PREFIX}some-uuid`])(
-            "returns true for %s",
-            (tag) => {
-                expect(isSectionTag(tag)).toBe(true);
-            },
-        );
+        it.each([
+            DefaultTagID.Invite,
+            DefaultTagID.Favourite,
+            DefaultTagID.LowPriority,
+            CHATS_TAG,
+            DefaultTagID.DM,
+            `${CUSTOM_SECTION_TAG_PREFIX}some-uuid`,
+        ])("returns true for %s", (tag) => {
+            expect(isSectionTag(tag)).toBe(true);
+        });
 
-        it.each([DefaultTagID.Invite, "some.random.tag"])("returns false for %s", (tag) => {
+        it.each(["some.random.tag"])("returns false for %s", (tag) => {
             expect(isSectionTag(tag)).toBe(false);
         });
     });
